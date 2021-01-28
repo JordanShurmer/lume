@@ -1,20 +1,50 @@
-import { existsSync } from "./deps/fs.js";
-import { parse } from "./deps/flags.js";
-import { brightGreen, gray } from "./deps/colors.js";
-import { join, relative, resolve } from "./deps/path.js";
+import {existsSync} from "./deps/fs.js";
+import {parse} from "./deps/flags.js";
+import {brightGreen, gray, red, bold} from "./deps/colors.js";
+import {join, relative, resolve} from "./deps/path.js";
 import lume from "./mod.js";
-import { error } from "./utils.js";
+import {error} from "./utils.js";
+import { build } from './commands/mod.js';
+import { Command, ValidationError } from "./deps/cliffy-command.js";
+
+export const version = "0.13.2";
 
 if (import.meta.main) {
-  cli(Deno.args);
+  try {
+    cli(Deno.args);
+  } catch (error) {
+    console.log(`${bold(red("error"))}: ${error.message}`)
+    if (error instanceof ValidationError) {
+      console.log(`Run ${brightGreen("lume --help")} for usage information`);
+    }
+    console.log("");
+    Deno.exit(1);
+  }
 }
 
+const validCommands = [
+  "build",
+  "init",
+  "run",
+  "serve",
+  "upgrade",
+  "update",
+];
+
 export default async function cli(args) {
-  const version = "v0.13.2";
-  let stop = false;
+
+  await new Command()
+      .name("lume")
+      .version(version)
+      .description("A static site generator for Deno\n\nDocs: https://lumeland.github.io")
+      .command("build", build)
+      .parse(args)
+}
+
+async function old_cli(args) {
   const options = parse(args, {
-    boolean: ["serve", "init", "version", "dev", "help", "upgrade", "update"],
-    string: ["run", "port", "src", "dest", "location"],
+    boolean: ["dev", "version", "help"],
+    string: ["port", "src", "dest", "location"],
     alias: {
       help: "h",
       version: "v",
@@ -22,23 +52,18 @@ export default async function cli(args) {
     ["--"]: true,
     unknown(option) {
       if (option.startsWith("-")) {
-        console.log(`Unknown option: ${option}`);
-        stop = true;
+        throw new Error(`Unknown option: ${option}`);
       }
     },
   });
 
-  if (stop) {
-    console.log(`Run ${brightGreen("lume --help")} for usage information`);
-    console.log("");
-    return;
+  if (options._.length > 1) {
+    throw new Error(`Too many arguments: ${options._.join(", ")}`);
   }
 
-  if (options._.length > 1) {
-    console.log(`Too much arguments: ${options._.join(", ")}`);
-    console.log(`Run ${brightGreen("lume --help")} for usage information`);
-    console.log("");
-    return;
+  const command = options._[0] || 'build' // default command is build
+  if (!validCommands.includes(command)) {
+    throw new Error(`Found argument '${command}' which wasn't expected`);
   }
 
   // lume --help
@@ -46,7 +71,7 @@ export default async function cli(args) {
     console.log(`🔥lume ${version}
 A static site generator for Deno
 
-Docs: https://oscarotero.github.io/lume/
+Docs: https://lumeland.github.io
 
 To build the site:
     lume
@@ -55,12 +80,16 @@ To serve the site in localhost
     lume --serve
 
 USAGE:
-    lume [OPTIONS] [<path>]
+    lume [OPTIONS] [COMMAND]
+
+COMMANDS:
+        ${validCommands.join('/n')}
 
 OPTIONS:
+    -h, --help     Prints help information
+    -v, --version  Prints version information
         --dest     Set/override the dest option
         --dev      Run lume in development mode
-    -h, --help     Prints help information
         --init     Creates a _config.js file
         --location Set/override the location option
         --port     Change the default port of the webserver (from 3000)
@@ -69,7 +98,6 @@ OPTIONS:
         --src      Set/override the src option
         --update   Update the lume version imported in the _config.js file
         --upgrade  Upgrade 🔥lume to the latest version
-    -v, --version  Prints version information
 `);
     return;
   }
@@ -80,22 +108,29 @@ OPTIONS:
     return;
   }
 
+
+    if (stop) {
+      console.log(`Run ${brightGreen("lume --help")} for usage information`);
+      console.log("");
+      return;
+    }
+
   // lume --upgrade
   if (options.upgrade) {
     const versions = await fetch(
-      "https://cdn.deno.land/lume/meta/versions.json",
+        "https://cdn.deno.land/lume/meta/versions.json",
     ).then((res) => res.json());
 
     if (versions.latest === version) {
       console.log(
-        `You're using the latest version of lume: ${versions.latest}!`,
+          `You're using the latest version of lume: ${versions.latest}!`,
       );
       console.log("");
       return;
     }
 
     console.log(
-      `New version available. Updating lume to ${versions.latest}...`,
+        `New version available. Updating lume to ${versions.latest}...`,
     );
 
     await Deno.run({
@@ -120,15 +155,15 @@ OPTIONS:
 
     console.log("");
     console.log(
-      `Update successful! You're using the latest version of lume: ${
-        brightGreen(versions.latest)
-      }!`,
+        `Update successful! You're using the latest version of lume: ${
+            brightGreen(versions.latest)
+        }!`,
     );
     console.log(
-      "See the changes in",
-      gray(
-        `https://github.com/lumeland/lume/blob/${versions.latest}/CHANGELOG.md}`,
-      ),
+        "See the changes in",
+        gray(
+            `https://github.com/lumeland/lume/blob/${versions.latest}/CHANGELOG.md}`,
+        ),
     );
     console.log("");
     return;
@@ -145,8 +180,8 @@ OPTIONS:
 
     const content = await Deno.readTextFile(file);
     const updated = content.replaceAll(
-      /https:\/\/deno\.land\/x\/lume(@v[\d\.]+)?\/(.*)/g,
-      (m, v, file) => `https://deno.land/x/lume@${version}/${file}`,
+        /https:\/\/deno\.land\/x\/lume(@v[\d\.]+)?\/(.*)/g,
+        (m, v, file) => `https://deno.land/x/lume@${version}/${file}`,
     );
 
     if (content === updated) {
@@ -158,8 +193,8 @@ OPTIONS:
     Deno.writeTextFile(file, updated);
 
     console.log(
-      `Updated lume modules to ${brightGreen(version)} in`,
-      gray(file),
+        `Updated lume modules to ${brightGreen(version)} in`,
+        gray(file),
     );
     console.log("");
     return;
@@ -190,8 +225,8 @@ OPTIONS:
   // lume --init
   if (options.init) {
     Deno.writeTextFileSync(
-      configFile,
-      `import lume from "https://deno.land/x/lume/mod.js";
+        configFile,
+        `import lume from "https://deno.land/x/lume/mod.js";
 
 const site = lume();
 
@@ -209,7 +244,7 @@ export default site;
     site = mod.default;
     site.options.cwd = cwd;
   } else {
-    site = lume({ cwd });
+    site = lume({cwd});
   }
 
   if (options.dev) {
@@ -249,7 +284,7 @@ export default site;
   }
 
   // lume --serve
-  const { server } = await import("./server.js");
+  const {server} = await import("./server.js");
 
   try {
     await server(site, options);
@@ -280,7 +315,7 @@ export default site;
       }
 
       event.paths.forEach((path) =>
-        changes.add(join("/", relative(site.src(), path)))
+          changes.add(join("/", relative(site.src(), path)))
       );
 
       //Debounce
